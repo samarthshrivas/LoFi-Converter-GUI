@@ -1,0 +1,4 @@
+.streamlit/
+hooks/
+main.spec
+main.py

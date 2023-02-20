@@ -1,0 +1,4 @@
+streamlit
+pedalboard
+soundfile
+yt_dlp
