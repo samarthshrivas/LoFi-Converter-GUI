@@ -49,6 +49,7 @@ if youtube_link:
     
     if st.button("Download MP3"):
         mp3_file = f"{os.path.splitext(output_file)[0]}.mp3"
-        music.wav_to_mp3(output_file, mp3_file)
-        st.download_button("Download", mp3_file, "lofi-audio.mp3")
+        music.wav_to_mp3(output_file, mp3_file
+        with open(mp3_file, "rb") as file:
+            st.download_button("Download", file, "lofi-audio.mp3")
 
