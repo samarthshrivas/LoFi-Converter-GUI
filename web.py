@@ -21,7 +21,7 @@ st.write("Enter the YouTube link of the song to convert:")
 youtube_link = st.text_input("YouTube link")
 # Create sliders for delay, reverb, and slow factor
 if youtube_link:
-    with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/'+uu +'.%(ext)s'}) as ydl:
+    with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'add-header': "User-Agent:Mozilla/5.0 (Windows NT 10.0; rv:111.0) Gecko/20100101 Firefox/111.0", 'outtmpl': 'uploaded_files/'+uu +'.%(ext)s'}) as ydl:
         # Download audio from YouTube link and save as a WAV file
         info_dict = ydl.extract_info(youtube_link, download=True)
         audio_file = ydl.prepare_filename(info_dict)
