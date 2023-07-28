@@ -4,3 +4,5 @@ main.spec
 main.py
 uploaded_files/*
 venv/*
+tmp.wav
+__pycache__
