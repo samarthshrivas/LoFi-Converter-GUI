@@ -3,3 +3,4 @@ hooks/
 main.spec
 main.py
 uploaded_files/*
+venv/*

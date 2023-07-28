@@ -8,7 +8,7 @@ uu = str(uuid.uuid4())
 
 
 st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide")
-st.title("Lofi Converter")
+st.title(":microphone: Lofi Converter")
 
 # Define function to delete temporary audio files
 def delete_temp_files():
@@ -17,8 +17,7 @@ def delete_temp_files():
     os.remove(mp3_file)
 
 
-st.write("Enter the YouTube link of the song to convert:")
-youtube_link = st.text_input("YouTube link")
+youtube_link = st.text_input("Enter the YouTube link 🔗 of the song to convert:", placeholder="https://www.youtube.com/watch/dQw4w9WgXcQ")
 # Create sliders for delay, reverb, and slow factor
 if youtube_link:
     with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'add-header': "User-Agent:Mozilla/5.0 (Windows NT 10.0; rv:111.0) Gecko/20100101 Firefox/111.0", 'outtmpl': 'uploaded_files/'+uu +'.%(ext)s'}) as ydl:
@@ -53,3 +52,23 @@ if youtube_link:
         with open(mp3_file, "rb") as file:
             st.download_button("Download", file, "lofi-audio.mp3")
 
+
+
+
+st.markdown("""
+    <h10 style="text-align: center; position: fixed; bottom: 3rem;">Give a ⭐ on <a href="https://github.com/samarthshrivas"> Github</a> </h10>""", unsafe_allow_html=True)
+from streamlit.components.v1 import html
+button = """<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="SamarthShrivas" data-color="#FFDD00" data-emoji="📖" data-font="Cookie" data-text="Buy me a book" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>"""
+html(button, height=70, width=220)
+st.markdown(
+    """
+    <style>
+        iframe[width="220"] {
+            position: fixed;
+            bottom: 60px;
+            right: 40px;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
