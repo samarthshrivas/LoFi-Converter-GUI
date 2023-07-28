@@ -9,7 +9,7 @@ def slowedreverb(audio, output, room_size = 0.75, damping = 0.5, wet_level = 0.0
 
     if '.wav' not in audio:
         print('Audio needs to be .wav! Converting...')
-        sp.call(f'ffmpeg -y -i "{audio}" tmp.wav', shell = True)
+        sp.call(f'ffmpeg -hide_banner -loglevel error -y -i "{audio}" tmp.wav', shell = True)
         audio = 'tmp.wav'
         
     audio, sample_rate = sf.read(audio)
@@ -39,8 +39,10 @@ def slowedreverb(audio, output, room_size = 0.75, damping = 0.5, wet_level = 0.0
 
 
 def wav_to_mp3(wav_file, mp3_file):
-    command = f'ffmpeg -y -i "{wav_file}" "{mp3_file}"'
+    command = f'ffmpeg -hide_banner -loglevel error -y -i "{wav_file}" "{mp3_file}"'
+
     sp.call(command, shell=True)
+
 
 # if "__main__" == __name__:
     # slowedreverb('kali.wav', 'test1.wav')
