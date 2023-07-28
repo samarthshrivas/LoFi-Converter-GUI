@@ -43,6 +43,13 @@ def wav_to_mp3(wav_file, mp3_file):
 
     sp.call(command, shell=True)
 
+def msc_to_mp3_inf(wav_file):
+    ffmpeg_command = ["ffmpeg", "-i", wav_file, "-f", "mp3", "pipe:1"]
+    pipe = sp.run(ffmpeg_command,
+                        stdout=sp.PIPE,
+                        stderr=sp.PIPE,
+                        bufsize=10**8)
+    return pipe.stdout
 
 # if "__main__" == __name__:
     # slowedreverb('kali.wav', 'test1.wav')

@@ -6,3 +6,4 @@ uploaded_files/*
 venv/*
 tmp.wav
 __pycache__
+temp.py

@@ -20,8 +20,10 @@ def download_youtube_audio(youtube_link):
     with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/' + uu + '.%(ext)s', "quiet":True}) as ydl:
         info_dict = ydl.extract_info(youtube_link, download=True)
         audio_file = ydl.prepare_filename(info_dict)
+        song_name = info_dict['title']
     print(f"Downloaded YouTube link: {youtube_link}")
-    return audio_file
+    mp3_file_base = music.msc_to_mp3_inf(audio_file)
+    return audio_file, mp3_file_base, song_name
 
 # Main function for the web app
 def main():
@@ -32,11 +34,11 @@ def main():
 
     if youtube_link:
         # Download audio from YouTube link and save as a WAV file (using cached function)
-        audio_file = download_youtube_audio(youtube_link)
+        audio_file, mp3_base_file, song_name = download_youtube_audio(youtube_link)
 
         # Show original audio
         st.write("Original Audio")
-        st.audio(audio_file, format="audio/wav")
+        st.audio(mp3_base_file, format="audio/mp3")
 
         # Get user settings for slowedreverb function
         room_size, damping, wet_level, dry_level, delay, slow_factor = get_user_settings()
@@ -48,20 +50,10 @@ def main():
 
         # Show Lofi converted audio
         st.write("Lofi Converted Audio (Preview)")
-        st.audio(output_file, format="audio/wav")
+        st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
 
-        # Offer MP3 download option
-        mp3_file = None  # Initialize mp3_file to None
-        if st.button("Download MP3"):
-            mp3_file = f"{os.path.splitext(output_file)[0]}.mp3"
-            music.wav_to_mp3(output_file, mp3_file)
-            with open(mp3_file, "rb") as file:
-                print(f"File Downloaded: {mp3_file}")
+        st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
 
-                st.download_button("Download", file, "lofi-audio.mp3")
-
-        # Delete temporary files
-        # delete_temp_files(audio_file, output_file, mp3_file)
 
     # Footer and BuyMeACoffee button
     st.markdown("""
