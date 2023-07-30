@@ -16,14 +16,18 @@ def delete_temp_files(audio_file, output_file, mp3_file):
 @st.cache_data
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
-    
-    with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/' + uu + '.%(ext)s', "quiet":True}) as ydl:
-        info_dict = ydl.extract_info(youtube_link, download=True)
-        audio_file = ydl.prepare_filename(info_dict)
-        song_name = info_dict['title']
-    print(f"Downloaded YouTube link: {youtube_link} ==> {song_name}")
-    mp3_file_base = music.msc_to_mp3_inf(audio_file)
-    return audio_file, mp3_file_base, song_name
+    try:
+        with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/' + uu + '.%(ext)s', "quiet":True}) as ydl:
+            info_dict = ydl.extract_info(youtube_link, download=True)
+            audio_file = ydl.prepare_filename(info_dict)
+            song_name = info_dict['title']
+        print(f"Downloaded YouTube link: {youtube_link} ==> {song_name}")
+        mp3_file_base = music.msc_to_mp3_inf(audio_file)
+        return (audio_file, mp3_file_base, song_name)
+    except Exception as e:
+        st.error("Make sure Youtube video is publicly globally avilable!!!")
+        print(e)
+        return None
 
 # Main function for the web app
 def main():
@@ -34,25 +38,28 @@ def main():
 
     if youtube_link:
         # Download audio from YouTube link and save as a WAV file (using cached function)
-        audio_file, mp3_base_file, song_name = download_youtube_audio(youtube_link)
+        d = download_youtube_audio(youtube_link)
+        if d is not None:
+            audio_file, mp3_base_file, song_name = download_youtube_audio(youtube_link)
 
-        # Show original audio
-        st.write("Original Audio")
-        st.audio(mp3_base_file, format="audio/mp3")
 
-        # Get user settings for slowedreverb function
-        room_size, damping, wet_level, dry_level, delay, slow_factor = get_user_settings()
+            # Show original audio
+            st.write("Original Audio")
+            st.audio(mp3_base_file, format="audio/mp3")
 
-        # Process audio with slowedreverb function
-        output_file = os.path.splitext(audio_file)[0] + "_lofi.wav"
-        print(f"User Settings: {audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor}")
-        music.slowedreverb(audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor)
+            # Get user settings for slowedreverb function
+            room_size, damping, wet_level, dry_level, delay, slow_factor = get_user_settings()
 
-        # Show Lofi converted audio
-        st.write("Lofi Converted Audio (Preview)")
-        st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
+            # Process audio with slowedreverb function
+            output_file = os.path.splitext(audio_file)[0] + "_lofi.wav"
+            print(f"User Settings: {audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor}")
+            music.slowedreverb(audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor)
 
-        st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
+            # Show Lofi converted audio
+            st.write("Lofi Converted Audio (Preview)")
+            st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
+
+            st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
 
 
     # Footer and BuyMeACoffee button
