@@ -13,7 +13,7 @@ def delete_temp_files(audio_file, output_file, mp3_file):
         os.remove(mp3_file)
 
 # Function to download YouTube audio and save as a WAV file
-@st.cache_data
+@st.cache_data(ttl=600)
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
     try:
@@ -39,8 +39,9 @@ def main():
     if youtube_link:
         # Download audio from YouTube link and save as a WAV file (using cached function)
         d = download_youtube_audio(youtube_link)
+        print(f"Retreaving YouTube link: {youtube_link}")
         if d is not None:
-            audio_file, mp3_base_file, song_name = download_youtube_audio(youtube_link)
+            audio_file, mp3_base_file, song_name = d
 
 
             # Show original audio
