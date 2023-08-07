@@ -26,7 +26,7 @@ def download_youtube_audio(youtube_link):
         return (audio_file, mp3_file_base, song_name)
     except Exception as e:
         st.error("Make sure Youtube video is publicly globally avilable!!!")
-        print(e)
+        print(f"ERROR: {e} ==> {youtube_link}")
         return None
 
 # Main function for the web app
