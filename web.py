@@ -13,7 +13,7 @@ def delete_temp_files(audio_file, output_file, mp3_file):
         os.remove(mp3_file)
 
 
-@st.cache_data(ttl=600, show_spinner=False, persist="disk")
+@st.cache_data(show_spinner=False, persist="disk")
 def isDownlaodable(youtube_link):
     try:
         with yt_dlp.YoutubeDL({'format': 'bestaudio', "quiet":True, }) as ydl:
@@ -35,7 +35,7 @@ def isDownlaodable(youtube_link):
         return False
 
 # Function to download YouTube audio and save as a WAV file
-@st.cache_data(ttl=600, persist="disk")
+@st.cache_data(persist="disk")
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
 
