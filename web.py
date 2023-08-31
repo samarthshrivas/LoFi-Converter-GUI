@@ -3,6 +3,7 @@ import streamlit as st
 import music
 import yt_dlp
 import uuid
+from streamlit.components.v1 import html
 
 
 # Function to delete temporary audio files
@@ -13,10 +14,10 @@ def delete_temp_files(audio_file, output_file, mp3_file):
         os.remove(mp3_file)
 
 
-@st.cache_data(persist="disk", show_spinner=False, max_entries=20)
+@st.cache_data(show_spinner=False, max_entries=5)
 def isDownlaodable(youtube_link):
     try:
-        with yt_dlp.YoutubeDL({'format': 'bestaudio', "quiet":True, }) as ydl:
+        with yt_dlp.YoutubeDL({'format': 'bestaudio', "quiet":True}) as ydl:
             dur = None
             info_dict = ydl.extract_info(youtube_link, download=False)
             for i in info_dict['formats']:
@@ -36,7 +37,7 @@ def isDownlaodable(youtube_link):
         return False
 
 # Function to download YouTube audio and save as a WAV file
-@st.cache_data(persist="disk", max_entries=5)
+@st.cache_data(max_entries=4)
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
 
@@ -60,39 +61,40 @@ def main():
     st.title(":microphone: Lofi Converter")
     st.info("Tip: Use Headphone for best experience :headphones:")
     youtube_link = st.text_input("Enter the YouTube link 🔗 of the song to convert:", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    try:
+        if youtube_link:
+            # Download audio from YouTube link and save as a WAV file (using cached function)
+            d = download_youtube_audio(youtube_link)
+            print(f"Retreaving YouTube link: {youtube_link}")
+            if d is not None:
+                audio_file, mp3_base_file, song_name = d
 
-    if youtube_link:
-        # Download audio from YouTube link and save as a WAV file (using cached function)
-        d = download_youtube_audio(youtube_link)
-        print(f"Retreaving YouTube link: {youtube_link}")
-        if d is not None:
-            audio_file, mp3_base_file, song_name = d
 
+                # Show original audio
+                st.write("Original Audio")
+                st.audio(mp3_base_file, format="audio/mp3")
 
-            # Show original audio
-            st.write("Original Audio")
-            st.audio(mp3_base_file, format="audio/mp3")
+                # Get user settings for slowedreverb function
+                room_size, damping, wet_level, dry_level, delay, slow_factor = get_user_settings()
 
-            # Get user settings for slowedreverb function
-            room_size, damping, wet_level, dry_level, delay, slow_factor = get_user_settings()
+                # Process audio with slowedreverb function
+                output_file = os.path.splitext(audio_file)[0] + "_lofi.wav"
+                print(f"User Settings: {audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor}")
+                music.slowedreverb(audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor)
 
-            # Process audio with slowedreverb function
-            output_file = os.path.splitext(audio_file)[0] + "_lofi.wav"
-            print(f"User Settings: {audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor}")
-            music.slowedreverb(audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor)
+                # Show Lofi converted audio
+                st.write("Lofi Converted Audio (Preview)")
+                st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
 
-            # Show Lofi converted audio
-            st.write("Lofi Converted Audio (Preview)")
-            st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
-
-            st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
-
+                st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
+    except:
+        print("Error occcored in main fxn")
+        st.warning("Error Try again")
 
     # Footer and BuyMeACoffee button
     st.markdown("""
         <h10 style="text-align: center; position: fixed; bottom: 3rem;">Give a ⭐ on <a href="https://github.com/samarthshrivas/LoFi-Converter-GUI"> Github</a> </h10>""",
         unsafe_allow_html=True)
-    from streamlit.components.v1 import html
     button = """<script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="SamarthShrivas" data-color="#FFDD00" data-emoji="📖" data-font="Cookie" data-text="Buy me a book" data-outline-color="#000000" data-font-color="#000000" data-coffee-color="#ffffff" ></script>"""
     html(button, height=70, width=220)
     st.markdown(
