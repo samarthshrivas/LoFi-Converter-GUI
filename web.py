@@ -17,7 +17,7 @@ def delete_temp_files(audio_file, output_file, mp3_file):
 @st.cache_data(show_spinner=False, max_entries=5)
 def isDownlaodable(youtube_link):
     try:
-        with yt_dlp.YoutubeDL({'format': 'bestaudio', "quiet":True}) as ydl:
+        with yt_dlp.YoutubeDL({'format': 'bestaudio', "quiet":True, "noplaylist":True}) as ydl:
             dur = None
             info_dict = ydl.extract_info(youtube_link, download=False)
             for i in info_dict['formats']:
@@ -43,7 +43,7 @@ def download_youtube_audio(youtube_link):
 
     if isDownlaodable(youtube_link):
         try:
-            with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/' + uu + '.%(ext)s', "quiet":True}) as ydl:
+            with yt_dlp.YoutubeDL({'format': 'bestaudio/best', 'outtmpl': 'uploaded_files/' + uu + '.%(ext)s', "quiet":True, "noplaylist":True}) as ydl:
                 info_dict = ydl.extract_info(youtube_link, download=True)
                 audio_file = ydl.prepare_filename(info_dict)
                 song_name = info_dict['title']
