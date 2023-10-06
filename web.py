@@ -3,7 +3,7 @@ import streamlit as st
 import music
 import yt_dlp
 import uuid
-from streamlit.components.v1 import html
+from streamlit.components.v1 import html, components
 
 
 # Function to delete temporary audio files
@@ -57,8 +57,11 @@ def download_youtube_audio(youtube_link):
 
 # Main function for the web app
 def main():
-    st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide")
+    st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide", )
+    
     st.title(":microphone: Lofi Converter")
+    st.info("New and improved website is development")
+
     st.info("Tip: Use Headphone for best experience :headphones:")
     youtube_link = st.text_input("Enter the YouTube link 🔗 of the song to convert:", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     try:
