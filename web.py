@@ -123,7 +123,7 @@ def get_user_settings():
         wet_level = st.slider("Reverb Wet Level", min_value=0.0, max_value=1.0, value=0.08, step=0.01)
         dry_level = st.slider("Reverb Dry Level", min_value=0.0, max_value=1.0, value=0.2, step=0.01)
         delay = st.slider("Delay (ms)", min_value=0, max_value=20, value=2)
-        slow_factor = st.slider("Slow Factor", min_value=0.0, max_value=1.0, value=0.08, step=0.01)
+        slow_factor = st.slider("Slow Factor", min_value=0.0, max_value=0.2, value=0.08, step=0.01)
     return room_size, damping, wet_level, dry_level, delay, slow_factor
 
 if __name__ == "__main__":
