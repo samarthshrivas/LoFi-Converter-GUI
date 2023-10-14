@@ -1,2 +1,2 @@
 ffmpeg
-npx 
+npm 
