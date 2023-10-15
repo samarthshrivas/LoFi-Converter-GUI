@@ -56,13 +56,57 @@ def download_youtube_audio(youtube_link):
             return None
 
 # Main function for the web app
+
+
+import multiprocessing
+
+must_reload_page = False
+
+def start_flask():
+    if not hasattr(st, 'already_started_server'):
+        st.already_started_server = True
+        must_reload_page = True
+
+        from flask import Flask
+
+        app = Flask(__name__)
+
+        @app.route('/googleb96ed431c1476456.html')
+        def serve_foo():
+            with open("D:\Projects\GitHub\LoFi-Converter-GUI\pages\googleb96ed431c1476456.html", 'r') as f:
+                return f.read()
+
+        app.run(port=8888)
+
+def reload_page():
+    if must_reload_page:
+        must_reload_page = False
+        st.experimental_rerun()
+
+
+
+
+
 def main():
-    st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide", )
+    
+    st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="centered", initial_sidebar_state="collapsed")
     
     st.title(":microphone: Lofi Converter")
     st.info("New and improved website is development")
 
     st.info("Tip: Use Headphone for best experience :headphones:")
+
+    st.markdown(
+        """
+    <style>
+        [data-testid="collapsedControl"] {
+            display: none
+        }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     youtube_link = st.text_input("Enter the YouTube link 🔗 of the song to convert:", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     try:
         if youtube_link:
@@ -112,6 +156,7 @@ def main():
         """,
         unsafe_allow_html=True,
     )
+    
 
 # Function to get user settings
 def get_user_settings():
@@ -127,4 +172,8 @@ def get_user_settings():
     return room_size, damping, wet_level, dry_level, delay, slow_factor
 
 if __name__ == "__main__":
+    flask_process = multiprocessing.Process(target=start_flask)
+    reload_process = multiprocessing.Process(target=reload_page)
+    flask_process.start()
+    reload_process.start()
     main()
