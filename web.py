@@ -37,7 +37,7 @@ def isDownlaodable(youtube_link):
         return False
 
 # Function to download YouTube audio and save as a WAV file
-@st.cache_data(max_entries=4)
+@st.cache_data(ttl=2)
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
 
