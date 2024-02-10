@@ -58,9 +58,7 @@ def download_youtube_audio(youtube_link):
 # Main function for the web app
 def main():
     st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide", )
-    
     st.title(":microphone: Lofi Converter")
-    st.write("Use this new website [click here](https://lofi-convertor.samevibe.in/)")
     st.info("Tip: Use Headphone for best experience :headphones:")
     youtube_link = st.text_input("Enter the YouTube link 🔗 of the song to convert:", placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     try:
