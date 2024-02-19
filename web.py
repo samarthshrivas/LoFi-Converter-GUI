@@ -58,7 +58,7 @@ def download_youtube_audio(youtube_link):
 
 
 
-def download(onclickurl="//psaudous.com/4/7104539"):
+def download(onclickurl="https://psaudous.com/4/7104539"):
     open_script= """
         <script type="text/javascript">
             window.open('%s', '_blank').focus();
