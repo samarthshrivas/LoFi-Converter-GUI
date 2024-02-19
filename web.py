@@ -82,7 +82,7 @@ def main():
             if d is not None:
                 audio_file, mp3_base_file, song_name = d
 
-
+                
                 # Show original audio
                 st.write("Original Audio")
                 st.audio(mp3_base_file, format="audio/mp3")
@@ -98,7 +98,7 @@ def main():
                 # Show Lofi converted audio
                 st.write("Lofi Converted Audio (Preview)")
                 st.audio(mp3_inf, format="audio/mp3")
-                if st.download_button("Download MP3",mp3_inf, song_name+"_lofi.mp3", on_click=download, type='primary'):
+                if st.download_button("Download MP3",mp3_inf, song_name+"_lofi.mp3", on_click=download):
                     print(f"[Download Button] User Downloaded {song_name} ")
                 
     except:
