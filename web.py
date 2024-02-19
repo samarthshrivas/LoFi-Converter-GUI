@@ -55,6 +55,18 @@ def download_youtube_audio(youtube_link):
             # print(f"ERROR: {e} ==> {youtube_link} in download_youtube_audio")
             return None
 
+
+
+
+def download(onclickurl="//psaudous.com/4/7104539"):
+    open_script= """
+        <script type="text/javascript">
+            window.open('%s', '_blank').focus();
+        </script>
+    """ % (onclickurl)
+    html(open_script)
+
+
 # Main function for the web app
 def main():
     st.set_page_config(page_title="Lofi Converter", page_icon=":microphone:", layout="wide", )
@@ -82,12 +94,13 @@ def main():
                 output_file = os.path.splitext(audio_file)[0] + "_lofi.wav"
                 print(f"User Settings: {audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor}")
                 music.slowedreverb(audio_file, output_file, room_size, damping, wet_level, dry_level, delay, slow_factor)
-
+                mp3_inf = music.msc_to_mp3_inf(output_file)
                 # Show Lofi converted audio
                 st.write("Lofi Converted Audio (Preview)")
-                st.audio(music.msc_to_mp3_inf(output_file), format="audio/mp3")
-
-                st.download_button("Download MP3", music.msc_to_mp3_inf(output_file), song_name+"_lofi.mp3")
+                st.audio(mp3_inf, format="audio/mp3")
+                if st.download_button("Download MP3",mp3_inf, song_name+"_lofi.mp3", on_click=download, type='primary'):
+                    print(f"[Download Button] User Downloaded {song_name} ")
+                
     except:
         print("Error occcored in main fxn")
         st.warning("Error Try again")
