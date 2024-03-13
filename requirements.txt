@@ -1,4 +1,4 @@
 streamlit==1.25.0
 pedalboard==0.7.5
 soundfile==0.12.1
-yt-dlp==2023.7.6
+yt-dlp==2024.3.10
