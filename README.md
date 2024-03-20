@@ -1,4 +1,4 @@
-# Welcome to [Lo-Fi Converter GUI!](https://lofi-convertor.samevibe.in/)
+# Welcome to [Lo-Fi Converter GUI!](https://lofi-converter.samevibe.in/)
 Simple way to convert **Youtube** Song to Lo-Fi version of that song just from its url !!!
 
 ## Contributions are appreciated 👍
