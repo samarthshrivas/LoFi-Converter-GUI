@@ -1,5 +1,2 @@
-streamlit==1.25.0
-pedalboard==0.7.5
-soundfile==0.12.1
-yt-dlp
-pytubefix
+streamlit>=1.25.0
+pytubefix>=10.9.0
