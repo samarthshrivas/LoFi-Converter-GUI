@@ -23,6 +23,14 @@ def download_youtube_audio(youtube_link):
 
     try:
         from pytubefix import YouTube
+        from pytubefix import innertube
+
+        # Patch User-Agent to avoid YouTube blocking cloud IPs
+        innertube._default_clients["ANDROID_VR"]["header"]["User-Agent"] = (
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.6367.113 Mobile Safari/537.36"
+        )
 
         yt = YouTube(youtube_link, use_oauth=False, allow_oauth_cache=False)
         song_name = yt.title or "Unknown Title"
