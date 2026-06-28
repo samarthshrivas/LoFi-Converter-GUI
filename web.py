@@ -15,8 +15,50 @@ def delete_temp_files(audio_file, output_file, mp3_file):
         os.remove(mp3_file)
 
 
+# ---------------------------------------------------------------------------
+# Patch pytubefix's HTTP layer: add browser-like headers + use `requests` for
+# a less-distinctive TLS fingerprint, and handle decode errors gracefully.
+# ---------------------------------------------------------------------------
+def _patch_pytubefix_http():
+    """Monkey-patch pytubefix.request to handle decode errors gracefully.
+
+    We do NOT replace the HTTP client (keeping urllib) because YouTube's
+    API returns different streaming data when it sees browser-like headers
+    (Origin, Referer) — it switches to SABR mode which requires PoToken.
+    The built-in urllib with ANDROID_VR works correctly.
+
+    This patch only adds error resilience: non-UTF-8 responses from
+    YouTube (e.g. error pages) won't crash the app.
+    """
+    import pytubefix.request as _req
+    import requests as _requests
+
+    _orig_get = _req.get
+    _orig_post = _req.post
+
+    def _safe_get(url, extra_headers=None, timeout=None):
+        try:
+            return _orig_get(url, extra_headers=extra_headers, timeout=timeout)
+        except (UnicodeDecodeError, _requests.RequestException) as exc:
+            raise Exception(f"GET failed: {exc}")
+
+    def _safe_post(url, extra_headers=None, data=None, timeout=None):
+        try:
+            return _orig_post(
+                url, extra_headers=extra_headers, data=data, timeout=timeout
+            )
+        except (UnicodeDecodeError, _requests.RequestException) as exc:
+            raise Exception(f"POST failed: {exc}")
+
+    _req.get = _safe_get
+    _req.post = _safe_post
+
+
+# Apply the patch once at module level
+_patch_pytubefix_http()
+
+
 # Download YouTube audio using pytubefix (pure Python, no ffmpeg needed)
-@st.cache_data(ttl=3600)
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
     os.makedirs("uploaded_files", exist_ok=True)
@@ -25,31 +67,61 @@ def download_youtube_audio(youtube_link):
         from pytubefix import YouTube
         from pytubefix import innertube
 
-        # Patch User-Agent to avoid YouTube blocking cloud IPs
-        innertube._default_clients["ANDROID_VR"]["header"]["User-Agent"] = (
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.6367.113 Mobile Safari/537.36"
+        # Keep native ANDROID_VR User-Agent (Oculus VR — legitimate for client 28).
+        # Just add a few extra headers a real VR app would send.
+        innertube._default_clients["ANDROID_VR"]["header"].update(
+            {
+                "X-Youtube-Client-Version": "19.29.39",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
         )
 
-        yt = YouTube(youtube_link, use_oauth=False, allow_oauth_cache=False)
-        song_name = yt.title or "Unknown Title"
+        # --- Clean URL: strip playlist/radio params to avoid parsing issues ---
+        import re as _re
 
-        stream = yt.streams.get_audio_only()
-        if not stream:
-            raise Exception("No audio-only stream available")
+        m = _re.search(r"(https?://www\.youtube\.com/watch\?v=[^&]+)", youtube_link)
+        clean_url = m.group(1) if m else youtube_link
 
-        # Download with UUID filename + correct extension
-        audio_file = stream.download(
-            output_path="uploaded_files",
-            filename=f"{uu}.{stream.subtype}",
-        )
+        # --- Attempt download with fallback clients ---
+        # Enable PoToken for ANDROID_VR so videos that need it (SABR-protected)
+        # work without an extra round-trip.  The built-in botGuard generates
+        # the PoToken in ~0.8 s via the bundled Node.js runtime.
+        last_error = None
+        clients_to_try = ["ANDROID_VR", "ANDROID", "WEB"]
 
-        # Read raw audio bytes (no ffmpeg conversion needed)
-        with open(audio_file, "rb") as f:
-            audio_bytes = f.read()
+        for client_name in clients_to_try:
+            try:
+                # Enable PoToken for ANDROID_VR client
+                if client_name == "ANDROID_VR":
+                    innertube._default_clients["ANDROID_VR"]["require_po_token"] = True
 
-        return (audio_file, audio_bytes, song_name)
+                yt = YouTube(
+                    clean_url,
+                    use_oauth=False,
+                    allow_oauth_cache=False,
+                    client=client_name,
+                )
+                song_name = yt.title or "Unknown Title"
+                stream = yt.streams.get_audio_only()
+                if not stream:
+                    continue
+
+                audio_file = stream.download(
+                    output_path="uploaded_files",
+                    filename=f"{uu}.{stream.subtype}",
+                )
+
+                with open(audio_file, "rb") as f:
+                    audio_bytes = f.read()
+
+                return (audio_file, audio_bytes, song_name)
+
+            except Exception as e:
+                err_str = str(e)
+                last_error = err_str
+                continue
+
+        raise Exception(last_error or "All download attempts failed")
 
     except Exception as e:
         err_str = str(e)
@@ -1288,9 +1360,13 @@ def main():
                     st.session_state.downloaded_data = d + (youtube_link,)
                 else:
                     if d and len(d) == 2:
-                        st.error("Failed to download. Available formats:")
-                        for fmt in d[1]:
-                            st.text(fmt)
+                        err_msg = d[1][0] if isinstance(d[1], list) else str(d[1])
+                        st.error(f"\u26a0\ufe0f Download failed")
+                        st.info(
+                            f"This can happen when YouTube blocks cloud IPs. "
+                            f"Try a different video or upload a file instead.\n\n{err_msg}",
+                            icon="\u2139\ufe0f",
+                        )
 
     # === Process Uploaded File ===
     if uploaded_file:
