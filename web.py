@@ -2,7 +2,12 @@ import os
 import base64
 import streamlit as st
 import uuid
+import time
+import threading
+import logging
 from streamlit.components.v1 import html
+
+logger = logging.getLogger(__name__)
 
 
 # Function to delete temporary audio files
@@ -16,20 +21,143 @@ def delete_temp_files(audio_file, output_file, mp3_file):
 
 
 # ---------------------------------------------------------------------------
-# Patch pytubefix's HTTP layer: add browser-like headers + use `requests` for
-# a less-distinctive TLS fingerprint, and handle decode errors gracefully.
+# Free proxy manager – fetches & caches working HTTP proxies so we can
+# bypass YouTube's cloud-IP bot detection / geo-restrictions.
+#
+# Proxy lists are fetched from public sources, tested in parallel, and
+# cached for 10 minutes so subsequent downloads are fast.
+# ---------------------------------------------------------------------------
+
+_PROXY_CACHE: list[str] = []
+_PROXY_CACHE_LOCK = threading.Lock()
+_PROXY_CACHE_TIME = 0.0
+_PROXY_CACHE_TTL = 600  # re-fetch every 10 minutes
+_MAX_PROXY_TEST = 30
+_PROXY_TEST_TIMEOUT = 5.0  # seconds per proxy
+
+_PROXY_SOURCES = [
+    "https://api.proxyscrape.com/v2/?request=displayproxies"
+    "&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+    "https://raw.githubusercontent.com/TheSpeedX/SOCKS-Proxy/master/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    "https://raw.githubusercontent.com/jetkai/proxy-list/main/online/proxies/http.txt",
+    "https://raw.githubusercontent.com/robertklep/dutch-proxy-list/main/http.txt",
+    "https://www.proxy-list.download/api/v1/get?type=http",
+]
+
+
+def _fetch_proxy_list() -> list[str]:
+    """Gather proxies from multiple public sources (best-effort)."""
+    import requests as _req
+
+    seen: set[str] = set()
+    proxies: list[str] = []
+    for src in _PROXY_SOURCES:
+        try:
+            resp = _req.get(src, timeout=10)
+            if resp.status_code == 200:
+                for line in resp.text.splitlines():
+                    line = line.strip()
+                    if not line or ":" not in line:
+                        continue
+                    if line not in seen:
+                        seen.add(line)
+                        proxies.append(line)
+        except Exception:
+            continue
+    return proxies
+
+
+def _test_proxy(proxy_addr: str) -> bool:
+    """Quick connectivity check – does this proxy reach the internet?"""
+    import requests as _req
+
+    url = f"http://{proxy_addr}"
+    try:
+        r = _req.get(
+            "https://www.google.com/generate_204",
+            proxies={"http": url, "https": url},
+            timeout=_PROXY_TEST_TIMEOUT,
+        )
+        return r.status_code == 204
+    except Exception:
+        return False
+
+
+def _refresh_proxy_cache() -> list[str]:
+    """Fetch fresh proxies and test them (parallel)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    candidates = _fetch_proxy_list()
+    if not candidates:
+        return []
+
+    # De-duplicate & shuffle
+    seen: set[str] = set()
+    unique = [p for p in candidates if not (p in seen or seen.add(p))]
+    import random
+
+    random.shuffle(unique)
+
+    batch = unique[:_MAX_PROXY_TEST]
+    working: list[str] = []
+
+    # Test proxies in parallel threads
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        fut_map = {pool.submit(_test_proxy, p): p for p in batch}
+        for fut in as_completed(fut_map):
+            if fut.result():
+                working.append(fut_map[fut])
+
+    return working
+
+
+def get_working_proxies() -> list[str]:
+    """Return cached list of working ``ip:port`` proxies.
+
+    The list is refreshed in the background every ``_PROXY_CACHE_TTL``
+    seconds.  While a refresh is in progress, the stale cache is still
+    returned so callers never block.
+    """
+    global _PROXY_CACHE, _PROXY_CACHE_TIME
+
+    now = time.time()
+    with _PROXY_CACHE_LOCK:
+        cache_age = now - _PROXY_CACHE_TIME
+        if _PROXY_CACHE and cache_age < _PROXY_CACHE_TTL:
+            return list(_PROXY_CACHE)
+        # Stale cache still usable while we refresh
+        stale = list(_PROXY_CACHE) if _PROXY_CACHE else []
+
+    # Refresh asynchronously (don't block the caller)
+    def _do_refresh():
+        global _PROXY_CACHE, _PROXY_CACHE_TIME
+        fresh = _refresh_proxy_cache()
+        with _PROXY_CACHE_LOCK:
+            if fresh:
+                _PROXY_CACHE = fresh
+            _PROXY_CACHE_TIME = time.time()
+        logger.info("Proxy cache refreshed: %d working", len(fresh) if fresh else 0)
+
+    t = threading.Thread(target=_do_refresh, daemon=True)
+    t.start()
+
+    return stale  # return stale list while refresh runs in background
+
+
+def _reset_proxy():
+    """Remove any globally-installed proxy so urllib goes direct again."""
+    from urllib import request as _ur
+
+    _ur.install_opener(_ur.build_opener())
+
+
+# ---------------------------------------------------------------------------
+# Patch pytubefix's request layer – handle decode errors gracefully so that
+# non-UTF-8 responses (e.g. error pages) don't crash the app.
 # ---------------------------------------------------------------------------
 def _patch_pytubefix_http():
-    """Monkey-patch pytubefix.request to handle decode errors gracefully.
-
-    We do NOT replace the HTTP client (keeping urllib) because YouTube's
-    API returns different streaming data when it sees browser-like headers
-    (Origin, Referer) — it switches to SABR mode which requires PoToken.
-    The built-in urllib with ANDROID_VR works correctly.
-
-    This patch only adds error resilience: non-UTF-8 responses from
-    YouTube (e.g. error pages) won't crash the app.
-    """
+    """Monkey-patch pytubefix.request to not crash on non-UTF-8 responses."""
     import pytubefix.request as _req
     import requests as _requests
 
@@ -39,7 +167,7 @@ def _patch_pytubefix_http():
     def _safe_get(url, extra_headers=None, timeout=None):
         try:
             return _orig_get(url, extra_headers=extra_headers, timeout=timeout)
-        except (UnicodeDecodeError, _requests.RequestException) as exc:
+        except (UnicodeDecodeError, _requests.RequestException, Exception) as exc:
             raise Exception(f"GET failed: {exc}")
 
     def _safe_post(url, extra_headers=None, data=None, timeout=None):
@@ -47,7 +175,7 @@ def _patch_pytubefix_http():
             return _orig_post(
                 url, extra_headers=extra_headers, data=data, timeout=timeout
             )
-        except (UnicodeDecodeError, _requests.RequestException) as exc:
+        except (UnicodeDecodeError, _requests.RequestException, Exception) as exc:
             raise Exception(f"POST failed: {exc}")
 
     _req.get = _safe_get
@@ -56,6 +184,11 @@ def _patch_pytubefix_http():
 
 # Apply the patch once at module level
 _patch_pytubefix_http()
+
+# Warm the proxy cache in the background so it's ready for the first download
+import threading as _thr
+
+_thr.Thread(target=get_working_proxies, daemon=True).start()
 
 
 # Download YouTube audio using pytubefix (pure Python, no ffmpeg needed)
@@ -82,44 +215,69 @@ def download_youtube_audio(youtube_link):
         m = _re.search(r"(https?://www\.youtube\.com/watch\?v=[^&]+)", youtube_link)
         clean_url = m.group(1) if m else youtube_link
 
-        # --- Attempt download with fallback clients ---
-        # Enable PoToken for ANDROID_VR so videos that need it (SABR-protected)
-        # work without an extra round-trip.  The built-in botGuard generates
-        # the PoToken in ~0.8 s via the bundled Node.js runtime.
-        last_error = None
+        # --- Attempt download with fallback clients + proxies ---
+        # Strategy:
+        #   1. Try ANDROID_VR with PoToken (via botGuard) – works locally
+        #   2. On Streamlit Cloud, cloud IPs get flagged → try each working
+        #      proxy in turn, starting with ANDROID_VR + PoToken.
+        #   3. Fall through remaining clients (ANDROID, WEB) as last resort.
+
+        # Gather proxies once per call (they are cached for 5 min internally)
+        _proxies = get_working_proxies()
+        if _proxies:
+            logger.info("Using %d working proxies for download", len(_proxies))
+        else:
+            logger.info("No proxies available, trying direct connection")
+
+        # We'll try: direct first, then each proxy, for each client
         clients_to_try = ["ANDROID_VR", "ANDROID", "WEB"]
+        last_error = None
 
         for client_name in clients_to_try:
-            try:
-                # Enable PoToken for ANDROID_VR client
-                if client_name == "ANDROID_VR":
-                    innertube._default_clients["ANDROID_VR"]["require_po_token"] = True
+            # Direct attempt first, then each proxy
+            proxy_chain = [None] + _proxies
 
-                yt = YouTube(
-                    clean_url,
-                    use_oauth=False,
-                    allow_oauth_cache=False,
-                    client=client_name,
-                )
-                song_name = yt.title or "Unknown Title"
-                stream = yt.streams.get_audio_only()
-                if not stream:
+            for proxy_addr in proxy_chain:
+                try:
+                    # Enable PoToken for ANDROID_VR client
+                    if client_name == "ANDROID_VR":
+                        innertube._default_clients["ANDROID_VR"]["require_po_token"] = (
+                            True
+                        )
+
+                    proxies_dict = None
+                    if proxy_addr:
+                        proxy_url = f"http://{proxy_addr}"
+                        proxies_dict = {"http": proxy_url, "https": proxy_url}
+
+                    yt = YouTube(
+                        clean_url,
+                        use_oauth=False,
+                        allow_oauth_cache=False,
+                        client=client_name,
+                        proxies=proxies_dict,
+                    )
+                    song_name = yt.title or "Unknown Title"
+                    stream = yt.streams.get_audio_only()
+                    if not stream:
+                        continue
+
+                    audio_file = stream.download(
+                        output_path="uploaded_files",
+                        filename=f"{uu}.{stream.subtype}",
+                    )
+
+                    with open(audio_file, "rb") as f:
+                        audio_bytes = f.read()
+
+                    return (audio_file, audio_bytes, song_name)
+
+                except Exception as e:
+                    err_str = str(e)
+                    last_error = err_str
+                    # Reset proxy so the next attempt starts clean
+                    _reset_proxy()
                     continue
-
-                audio_file = stream.download(
-                    output_path="uploaded_files",
-                    filename=f"{uu}.{stream.subtype}",
-                )
-
-                with open(audio_file, "rb") as f:
-                    audio_bytes = f.read()
-
-                return (audio_file, audio_bytes, song_name)
-
-            except Exception as e:
-                err_str = str(e)
-                last_error = err_str
-                continue
 
         raise Exception(last_error or "All download attempts failed")
 
@@ -1362,9 +1520,20 @@ def main():
                     if d and len(d) == 2:
                         err_msg = d[1][0] if isinstance(d[1], list) else str(d[1])
                         st.error(f"\u26a0\ufe0f Download failed")
+
+                        # Show proxy info if available
+                        _n = len(get_working_proxies())
+                        _proxy_hint = (
+                            f" ({_n} proxies available)"
+                            if _n
+                            else " (no proxies available)"
+                        )
+
                         st.info(
-                            f"This can happen when YouTube blocks cloud IPs. "
-                            f"Try a different video or upload a file instead.\n\n{err_msg}",
+                            f"This can happen when YouTube blocks cloud IPs."
+                            f"{_proxy_hint}"
+                            f"\n\nTry a different video or upload a file instead."
+                            f"\n\n{err_msg}",
                             icon="\u2139\ufe0f",
                         )
 
