@@ -432,9 +432,16 @@ def _download_via_api(video_id: str, proxy_addr: Optional[str], uu: str):
 
         # ── 3. Download the audio stream ─────────────────────────────
         try:
-            # Chunked download with a total timeout guard
-            audio_resp = sess.get(stream_url, timeout=(10, 60), stream=True)
-            if audio_resp.status_code != 200:
+            # YouTube's CDN (gvs) requires a Range header.  Without it the
+            # connection hangs or returns 403 (especially from cloud IPs).
+            stream_headers = {
+                "User-Agent": cfg["headers"]["User-Agent"],
+                "Range": "bytes=0-",
+            }
+            audio_resp = sess.get(
+                stream_url, headers=stream_headers, timeout=(10, 60), stream=True
+            )
+            if audio_resp.status_code not in (200, 206):
                 logger.debug(
                     "API %s -> stream HTTP %s (skip)", name, audio_resp.status_code
                 )
