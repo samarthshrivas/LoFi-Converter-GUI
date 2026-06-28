@@ -5,6 +5,7 @@ import uuid
 import time
 import threading
 import logging
+from typing import Optional
 from streamlit.components.v1 import html
 
 logger = logging.getLogger(__name__)
@@ -191,100 +192,401 @@ import threading as _thr
 _thr.Thread(target=get_working_proxies, daemon=True).start()
 
 
-# Download YouTube audio using pytubefix (pure Python, no ffmpeg needed)
+# ---------------------------------------------------------------------------
+# Direct YouTube audio download – makes the InnerTube API call ourselves via
+# `requests` + proxy, avoiding pytubefix's SABR/PoToken issues on cloud IPs.
+#
+# We try MULTIPLE client configurations because different YouTube clients
+# return different stream types.  Some clients return direct stream URLs
+# even when others enforce SABR (which needs a PoToken we can't generate
+# on Streamlit Cloud).
+# ---------------------------------------------------------------------------
+
+_YT_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+
+# These client configs are extracted from pytubefix 10.10.1's
+# `_default_clients` – only clients with `require_po_token=False`.
+_CLIENT_CONFIGS = [
+    {
+        "name": "ANDROID_VR",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "ANDROID_VR",
+                    "clientVersion": "1.60.19",
+                    "deviceMake": "Oculus",
+                    "deviceModel": "Quest 3",
+                    "osName": "Android",
+                    "osVersion": "12L",
+                    "androidSdkVersion": "32",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "com.google.android.apps.youtube.vr.oculus/1.60.19 "
+                "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+            ),
+            "X-Youtube-Client-Name": "28",
+            "Content-Type": "application/json",
+        },
+    },
+    {
+        "name": "ANDROID_MUSIC",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "ANDROID_MUSIC",
+                    "clientVersion": "7.27.52",
+                    "androidSdkVersion": "30",
+                    "osName": "Android",
+                    "osVersion": "11",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "com.google.android.apps.youtube.music/7.27.52 "
+                "(Linux; U; Android 11) gzip"
+            ),
+            "X-Youtube-Client-Name": "21",
+            "Content-Type": "application/json",
+        },
+    },
+    {
+        "name": "WEB_CREATOR",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "WEB_CREATOR",
+                    "clientVersion": "1.20220726.00.00",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "X-Youtube-Client-Name": "62",
+            "Content-Type": "application/json",
+        },
+    },
+    {
+        "name": "TV",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "TVHTML5",
+                    "clientVersion": "7.20240813.07.00",
+                    "platform": "TV",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (ChromiumStyle; TV) AppleWebKit/537.36 (KHTML, like Gecko)"
+            ),
+            "X-Youtube-Client-Name": "7",
+            "Content-Type": "application/json",
+        },
+    },
+    {
+        "name": "IOS",
+        "api_key": "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "IOS",
+                    "clientVersion": "19.45.4",
+                    "deviceMake": "Apple",
+                    "deviceModel": "iPhone16,2",
+                    "platform": "MOBILE",
+                    "osName": "iPhone",
+                    "osVersion": "18.1.0.22B83",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "com.google.ios.youtube/19.45.4 "
+                "(iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
+            ),
+            "X-Youtube-Client-Name": "5",
+            "Content-Type": "application/json",
+        },
+    },
+    {
+        "name": "ANDROID_TESTSUITE",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "context": {
+            "context": {
+                "client": {
+                    "clientName": "ANDROID_TESTSUITE",
+                    "clientVersion": "1.9",
+                    "platform": "MOBILE",
+                    "osName": "Android",
+                    "osVersion": "14",
+                    "androidSdkVersion": "34",
+                }
+            }
+        },
+        "headers": {
+            "User-Agent": (
+                "com.google.android.youtube/19.29.39 (Linux; U; Android 14) gzip"
+            ),
+            "X-Youtube-Client-Name": "30",
+            "X-Youtube-Client-Version": "1.9",
+            "Content-Type": "application/json",
+        },
+    },
+]
+
+# pytubefix clients to try in the fallback (all have require_po_token=False)
+_CLIENTS_FALLBACK = [
+    "ANDROID_VR",
+    "ANDROID_MUSIC",
+    "WEB_CREATOR",
+    "TV",
+    "IOS",
+    "ANDROID_TESTSUITE",
+]
+
+
+def _download_via_api(video_id: str, proxy_addr: Optional[str], uu: str):
+    """Try to download *video_id* through the InnerTube API via *proxy*.
+
+    Tries each client config from ``_CLIENT_CONFIGS`` in order.  Returns
+    ``(file_path, audio_bytes, title)`` or ``None``.
+    """
+    import requests as _req
+
+    proxies = None
+    if proxy_addr:
+        proxies = {"http": f"http://{proxy_addr}", "https": f"http://{proxy_addr}"}
+
+    sess = _req.Session()
+    if proxies:
+        sess.proxies.update(proxies)
+
+    for cfg in _CLIENT_CONFIGS:
+        name = cfg["name"]
+
+        # ── 1. Call the InnerTube player API ──────────────────────────
+        body = dict(cfg["context"])
+        body["videoId"] = video_id
+        body["contentCheckOk"] = "true"
+
+        try:
+            resp = sess.post(
+                _YT_PLAYER_URL,
+                params={"prettyPrint": "false", "key": cfg["api_key"]},
+                json=body,
+                headers=cfg["headers"],
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.debug("API %s -> HTTP %s (skip)", name, resp.status_code)
+                continue
+            data = resp.json()
+        except Exception as exc:
+            logger.debug("API %s -> exception: %s", name, exc)
+            continue
+
+        playability = data.get("playabilityStatus", {})
+        if playability.get("status") != "OK":
+            logger.debug("API %s -> status=%s (skip)", name, playability.get("status"))
+            continue
+
+        video_details = data.get("videoDetails") or {}
+        title = video_details.get("title", "Unknown Title")
+
+        # ── 2. Find the best audio stream with a direct URL ──────────
+        streaming_data = data.get("streamingData") or {}
+        formats = streaming_data.get("adaptiveFormats") or []
+
+        audio = [f for f in formats if f.get("mimeType", "").startswith("audio/")]
+        if not audio:
+            logger.debug("API %s -> no audio formats (skip)", name)
+            continue
+
+        audio.sort(key=lambda f: f.get("bitrate", 0), reverse=True)
+        best = audio[0]
+        stream_url = best.get("url")
+        if not stream_url:
+            # SABR-protected or ciphered – no direct URL, skip
+            logger.debug("API %s -> no direct URL (SABR/cipher, skip)", name)
+            continue
+
+        mime = best.get("mimeType", "")
+        ext = "m4a"
+        if "opus" in mime:
+            ext = "webm"
+        elif "mp3" in mime:
+            ext = "mp3"
+
+        # ── 3. Download the audio stream ─────────────────────────────
+        try:
+            # Chunked download with a total timeout guard
+            audio_resp = sess.get(stream_url, timeout=(10, 60), stream=True)
+            if audio_resp.status_code != 200:
+                logger.debug(
+                    "API %s -> stream HTTP %s (skip)", name, audio_resp.status_code
+                )
+                continue
+            # Read in chunks to avoid OOM on large files
+            chunks = []
+            for chunk in audio_resp.iter_content(
+                chunk_size=2 * 1024 * 1024, decode_unicode=False
+            ):
+                if chunk:
+                    chunks.append(chunk)
+            audio_bytes = b"".join(chunks)
+        except Exception as exc:
+            logger.debug("API %s -> stream download exception: %s", name, exc)
+            continue
+
+        file_path = os.path.join("uploaded_files", f"{uu}.{ext}")
+        with open(file_path, "wb") as f:
+            f.write(audio_bytes)
+        logger.info(
+            "API %s -> download OK (%s, %d bytes)", name, title, len(audio_bytes)
+        )
+        return file_path, audio_bytes, title
+
+    return None
+
+
+# Download YouTube audio – multi-strategy
 def download_youtube_audio(youtube_link):
     uu = str(uuid.uuid4())
     os.makedirs("uploaded_files", exist_ok=True)
 
-    try:
-        from pytubefix import YouTube
-        from pytubefix import innertube
+    # ── Clean URL ─────────────────────────────────────────────────────
+    import re as _re
 
-        # Keep native ANDROID_VR User-Agent (Oculus VR — legitimate for client 28).
-        # Just add a few extra headers a real VR app would send.
-        innertube._default_clients["ANDROID_VR"]["header"].update(
-            {
-                "X-Youtube-Client-Version": "19.29.39",
-                "Accept-Language": "en-US,en;q=0.9",
+    m = _re.search(r"(https?://www\.youtube\.com/watch\?v=[^&]+)", youtube_link)
+    clean_url = m.group(1) if m else youtube_link
+    video_id_match = _re.search(r"v=([a-zA-Z0-9_-]{11})", clean_url)
+    video_id = video_id_match.group(1) if video_id_match else ""
+
+    if not video_id:
+        return None, ["Error: Could not extract video ID from URL"]
+
+    # ── Gather working proxies (cached) ───────────────────────────────
+    _proxies = get_working_proxies()
+    proxy_chain = [None] + _proxies
+
+    # ── Strategy A: direct InnerTube API call (no pytubefix) ──────────
+    # Tries each client config × each proxy.  No PoToken needed.
+    last_error = None
+    for proxy_addr in proxy_chain:
+        try:
+            result = _download_via_api(video_id, proxy_addr, uu)
+            if result is not None:
+                return result
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    # ── Strategy B: pytubefix fallback ─────────────────────────────────
+    # For each proxy, try every client with use_po_token=False first.
+    # Only as a last resort try use_po_token=True (requires botGuard
+    # Node.js, which won't work on Streamlit Cloud).
+    for proxy_addr in proxy_chain:
+        proxies_dict = None
+        if proxy_addr:
+            proxies_dict = {
+                "http": f"http://{proxy_addr}",
+                "https": f"http://{proxy_addr}",
             }
-        )
 
-        # --- Clean URL: strip playlist/radio params to avoid parsing issues ---
-        import re as _re
+        # Try each client WITHOUT PoToken first
+        for client_name in _CLIENTS_FALLBACK:
+            try:
+                from pytubefix import YouTube
 
-        m = _re.search(r"(https?://www\.youtube\.com/watch\?v=[^&]+)", youtube_link)
-        clean_url = m.group(1) if m else youtube_link
-
-        # --- Attempt download with fallback clients + proxies ---
-        # Strategy:
-        #   1. Try ANDROID_VR with PoToken (via botGuard) – works locally
-        #   2. On Streamlit Cloud, cloud IPs get flagged → try each working
-        #      proxy in turn, starting with ANDROID_VR + PoToken.
-        #   3. Fall through remaining clients (ANDROID, WEB) as last resort.
-
-        # Gather proxies once per call (they are cached for 5 min internally)
-        _proxies = get_working_proxies()
-        if _proxies:
-            logger.info("Using %d working proxies for download", len(_proxies))
-        else:
-            logger.info("No proxies available, trying direct connection")
-
-        # We'll try: direct first, then each proxy, for each client
-        clients_to_try = ["ANDROID_VR", "ANDROID", "WEB"]
-        last_error = None
-
-        for client_name in clients_to_try:
-            # Direct attempt first, then each proxy
-            proxy_chain = [None] + _proxies
-
-            for proxy_addr in proxy_chain:
-                try:
-                    # Enable PoToken for ANDROID_VR client
-                    if client_name == "ANDROID_VR":
-                        innertube._default_clients["ANDROID_VR"]["require_po_token"] = (
-                            True
-                        )
-
-                    proxies_dict = None
-                    if proxy_addr:
-                        proxy_url = f"http://{proxy_addr}"
-                        proxies_dict = {"http": proxy_url, "https": proxy_url}
-
-                    yt = YouTube(
-                        clean_url,
-                        use_oauth=False,
-                        allow_oauth_cache=False,
-                        client=client_name,
-                        proxies=proxies_dict,
-                    )
-                    song_name = yt.title or "Unknown Title"
-                    stream = yt.streams.get_audio_only()
-                    if not stream:
-                        continue
-
-                    audio_file = stream.download(
-                        output_path="uploaded_files",
-                        filename=f"{uu}.{stream.subtype}",
-                    )
-
-                    with open(audio_file, "rb") as f:
-                        audio_bytes = f.read()
-
-                    return (audio_file, audio_bytes, song_name)
-
-                except Exception as e:
-                    err_str = str(e)
-                    last_error = err_str
-                    # Reset proxy so the next attempt starts clean
-                    _reset_proxy()
+                yt = YouTube(
+                    clean_url,
+                    use_oauth=False,
+                    allow_oauth_cache=False,
+                    client=client_name,
+                    proxies=proxies_dict,
+                    use_po_token=False,
+                )
+                song_name = yt.title or "Unknown Title"
+                stream = yt.streams.get_audio_only()
+                if not stream:
                     continue
 
-        raise Exception(last_error or "All download attempts failed")
+                audio_file = stream.download(
+                    output_path="uploaded_files",
+                    filename=f"{uu}.{stream.subtype}",
+                )
+                with open(audio_file, "rb") as f:
+                    audio_bytes = f.read()
+                logger.info(
+                    "pytubefix %s (no PoToken) -> OK (%s)", client_name, song_name
+                )
+                return (audio_file, audio_bytes, song_name)
 
-    except Exception as e:
-        err_str = str(e)
-        print(f"Download failed: {err_str}")
-        return None, [f"Error: {err_str}"]
+            except Exception as e:
+                last_error = f"{client_name} (no PoToken): {e}"
+                logger.debug("pytubefix %s (no PoToken) -> %s", client_name, e)
+                _reset_proxy()
+                continue
+
+    # ── Strategy C: pytubefix WITH PoToken (last resort) ──────────────
+    # PoToken generation needs botGuard (Node.js subprocess) which ONLY
+    # works on local machines, NOT on Streamlit Cloud.
+    for proxy_addr in proxy_chain:
+        proxies_dict = None
+        if proxy_addr:
+            proxies_dict = {
+                "http": f"http://{proxy_addr}",
+                "https": f"http://{proxy_addr}",
+            }
+
+        for client_name in _CLIENTS_FALLBACK:
+            try:
+                from pytubefix import YouTube
+
+                yt = YouTube(
+                    clean_url,
+                    use_oauth=False,
+                    allow_oauth_cache=False,
+                    client=client_name,
+                    proxies=proxies_dict,
+                    use_po_token=True,
+                )
+                song_name = yt.title or "Unknown Title"
+                stream = yt.streams.get_audio_only()
+                if not stream:
+                    continue
+
+                audio_file = stream.download(
+                    output_path="uploaded_files",
+                    filename=f"{uu}.{stream.subtype}",
+                )
+                with open(audio_file, "rb") as f:
+                    audio_bytes = f.read()
+                logger.info(
+                    "pytubefix %s (with PoToken) -> OK (%s)", client_name, song_name
+                )
+                return (audio_file, audio_bytes, song_name)
+
+            except Exception as e:
+                last_error = f"{client_name} (with PoToken): {e}"
+                logger.debug("pytubefix %s (with PoToken) -> %s", client_name, e)
+                _reset_proxy()
+                continue
+
+    return None, [f"Error: {last_error or 'All download strategies exhausted'}"]
 
 
 # Client-side lofi processor using Web Audio API
